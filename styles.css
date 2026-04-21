@@ -422,3 +422,29 @@ tbody tr:hover {
     font-size: 13px;
   }
 }
+.row--temp {
+  background: rgba(173, 218, 255, 0.55);
+}
+
+.row--temp:hover {
+  background: rgba(145, 205, 255, 0.72);
+}
+
+.row--reopen {
+  background: rgba(255, 207, 140, 0.72);
+}
+
+.row--reopen:hover {
+  background: rgba(255, 187, 98, 0.86);
+}
+
+.status-pill--temp {
+  background: rgba(26, 114, 184, 0.12);
+  color: #1a72b8;
+}
+
+.status-pill--reopen {
+  background: rgba(179, 92, 0, 0.12);
+  color: #b35c00;
+}
+
