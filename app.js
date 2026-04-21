@@ -1,6 +1,6 @@
 const SHEET_ID = "1J8EC-D6jINSq1WB2EwgnRfZpdspoPEwJa0p0CctqUBA";
 const SHEET_NAME = "Hoja 1";
-const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzjVwWkcTXB01mCLu__0wNxF0czwQy1f2vqu_0SmC_zd7wUbjzDUrGWMhn5BGfH92OT/exec";
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVVqXYzN61F2WSeYOTqbThHn2qh7LfRJdGp4hK5LCcVMVor-hxxWZ7Hz4uPMbG7QhK/exec";
 
 const FILTERS = {
   Cadena: document.getElementById("filterCadena"),
