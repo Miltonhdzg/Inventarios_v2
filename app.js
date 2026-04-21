@@ -1,6 +1,12 @@
 const SHEET_ID = "1J8EC-D6jINSq1WB2EwgnRfZpdspoPEwJa0p0CctqUBA";
 const SHEET_NAME = "Hoja 1";
+const DATA_IVS_SHEET_NAME = "Data_ivs";
 const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVVqXYzN61F2WSeYOTqbThHn2qh7LfRJdGp4hK5LCcVMVor-hxxWZ7Hz4uPMbG7QhK/exec";
+
+const STATUS_IVS = "Inventario Sin Venta";
+const PHOTO_RESOLVED_DAYS = 30;
+const ADJUSTMENT_GRACE_DAYS = 7;
+const numericKeys = new Set(["OH", "DDI"]);
 
 const FILTERS = {
   Cadena: document.getElementById("filterCadena"),
@@ -10,9 +16,6 @@ const FILTERS = {
   Marca: document.getElementById("filterMarca"),
   Estatus: document.getElementById("filterEstatus"),
 };
-
-const STATUS_IVS = "Inventario Sin Venta";
-const numericKeys = new Set(["OH", "DDI"]);
 
 const nomTiendaList = document.getElementById("listNomTienda");
 const tableBody = document.getElementById("tableBody");
@@ -39,13 +42,13 @@ let currentRows = [];
 let sortKey = "Descripcion";
 let sortDir = "asc";
 let selectedRow = null;
-let resolvedRows = new Set();
+let latestIvsByCase = new Map();
 
-function buildSheetUrl() {
+function buildSheetUrl(sheetName) {
   const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
   const params = new URLSearchParams({
     tqx: "out:json",
-    sheet: SHEET_NAME,
+    sheet: sheetName,
   });
   return `${base}?${params.toString()}`;
 }
@@ -58,16 +61,81 @@ function parseGviz(text) {
   return JSON.parse(match[1]);
 }
 
-function toObject(row, headers) {
+async function fetchSheetRows(sheetName) {
+  const response = await fetch(buildSheetUrl(sheetName));
+  if (!response.ok) {
+    throw new Error(`No se pudo cargar la hoja ${sheetName}`);
+  }
+
+  const text = await response.text();
+  const data = parseGviz(text);
+  const columns = data.table.cols || [];
+  const rows = data.table.rows || [];
+
+  return rows.map((row) => toObject(row, columns));
+}
+
+function toObject(row, columns) {
   const obj = {};
-  headers.forEach((header, index) => {
+
+  columns.forEach((column, index) => {
+    const header = column.label;
     const cell = row.c[index];
-    obj[header] = cell ? cell.v : "";
+
+    if (!header) {
+      return;
+    }
+
+    if (!cell) {
+      obj[header] = "";
+      return;
+    }
+
+    if (header === "FechaRegistro") {
+      obj[header] = normalizeDateValue(cell.v || cell.f || "");
+      return;
+    }
+
+    obj[header] = cell.v ?? cell.f ?? "";
   });
+
   obj.OH = Number(obj.OH || 0);
   obj.DDI = Number(obj.DDI || 0);
   obj.__rowId = buildRowId(obj);
+  obj.__caseKey = buildCaseKey(obj);
   return obj;
+}
+
+function normalizeDateValue(value) {
+  if (!value) return null;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+
+    const gvizMatch = trimmed.match(/^Date\((\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\)$/);
+    if (gvizMatch) {
+      const [, year, month, day, hour = "0", minute = "0", second = "0"] = gvizMatch;
+      return new Date(
+        Number(year),
+        Number(month),
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second)
+      );
+    }
+
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  return null;
 }
 
 function buildRowId(row) {
@@ -79,6 +147,17 @@ function buildRowId(row) {
     row.Marca || "",
     row.Descripcion || "",
     row.Estatus || "",
+  ].join("|");
+}
+
+function buildCaseKey(row) {
+  return [
+    row.Cadena || "",
+    row.NumTienda || "",
+    row.NomTienda || "",
+    row.Familia || "",
+    row.Marca || "",
+    row.Descripcion || "",
   ].join("|");
 }
 
@@ -96,6 +175,7 @@ function fillSelect(select, values) {
   optionAll.value = "";
   optionAll.textContent = "Todos";
   select.appendChild(optionAll);
+
   values.forEach((value) => {
     const option = document.createElement("option");
     option.value = value;
@@ -140,6 +220,7 @@ function updateFilterOptions(currentFilters) {
     const subset = filterRows(filtersForKey);
     const values = uniqSortedByKey(subset.map((row) => row[key]), key);
     const previousValue = input.value;
+
     if (key === "NomTienda") {
       nomTiendaValues = values;
       fillDatalist(nomTiendaList, values);
@@ -160,11 +241,124 @@ function sortRows(rows) {
   return [...rows].sort((a, b) => {
     const av = a[sortKey];
     const bv = b[sortKey];
+
     if (numericKeys.has(sortKey)) {
       return (Number(av) - Number(bv)) * dir;
     }
+
     return String(av).localeCompare(String(bv), "es", { sensitivity: "base" }) * dir;
   });
+}
+
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function daysBetween(fromDate, toDate = new Date()) {
+  if (!(fromDate instanceof Date) || Number.isNaN(fromDate.getTime())) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const diff = startOfDay(toDate) - startOfDay(fromDate);
+  return Math.floor(diff / msPerDay);
+}
+
+function hasEvidence(record) {
+  return Boolean(record.FotoExhibicionURL && record.FotoSenalizacionURL);
+}
+
+function buildIvsIndex(dataIvsRows) {
+  const map = new Map();
+
+  dataIvsRows.forEach((row) => {
+    const key = buildCaseKey(row);
+    if (!key.replace(/\|/g, "")) {
+      return;
+    }
+
+    const current = map.get(key);
+    const currentTime = current?.FechaRegistro instanceof Date ? current.FechaRegistro.getTime() : -Infinity;
+    const nextTime = row.FechaRegistro instanceof Date ? row.FechaRegistro.getTime() : -Infinity;
+
+    if (!current || nextTime >= currentTime) {
+      map.set(key, row);
+    }
+  });
+
+  return map;
+}
+
+function getTrackingState(row) {
+  if (row.Estatus !== STATUS_IVS) {
+    return {
+      type: "none",
+      label: row.Estatus || "",
+      clickable: false,
+      rowClass: "",
+      pillClass: "",
+      message: "",
+    };
+  }
+
+  const latestRecord = latestIvsByCase.get(row.__caseKey);
+
+  if (!latestRecord) {
+    return {
+      type: "unresolved",
+      label: STATUS_IVS,
+      clickable: true,
+      rowClass: "row--alert",
+      pillClass: "",
+      message: "",
+    };
+  }
+
+  const ageInDays = daysBetween(latestRecord.FechaRegistro);
+
+  if (String(latestRecord.AjusteInventario).toUpperCase() === "SI") {
+    if (ageInDays <= ADJUSTMENT_GRACE_DAYS) {
+      return {
+        type: "temp-adjustment",
+        label: "Ajuste vigente",
+        clickable: false,
+        rowClass: "row--temp",
+        pillClass: "status-pill--temp",
+        message: "Ajuste vigente",
+      };
+    }
+
+    return {
+      type: "needs-readjustment",
+      label: "Se necesita volver a hacer el ajuste",
+      clickable: true,
+      rowClass: "row--reopen",
+      pillClass: "status-pill--reopen",
+      message: "Se necesita volver a hacer el ajuste",
+    };
+  }
+
+  if (hasEvidence(latestRecord)) {
+    if (ageInDays <= PHOTO_RESOLVED_DAYS) {
+      return {
+        type: "resolved-evidence",
+        label: "Resuelto con evidencia",
+        clickable: false,
+        rowClass: "row--resolved",
+        pillClass: "status-pill--resolved",
+        message: "Resuelto con evidencia",
+      };
+    }
+  }
+
+  return {
+    type: "unresolved",
+    label: STATUS_IVS,
+    clickable: true,
+    rowClass: "row--alert",
+    pillClass: "",
+    message: "",
+  };
 }
 
 function createCell(content, className = "") {
@@ -176,16 +370,18 @@ function createCell(content, className = "") {
   return td;
 }
 
-function createStatusCell(row) {
+function createStatusCell(row, tracking) {
   const td = document.createElement("td");
-  if (resolvedRows.has(row.__rowId)) {
-    const pill = document.createElement("span");
-    pill.className = "status-pill status-pill--resolved";
-    pill.textContent = "Resuelto";
-    td.appendChild(pill);
+
+  if (!tracking.pillClass) {
+    td.textContent = tracking.label || row.Estatus || "";
     return td;
   }
-  td.textContent = row.Estatus || "";
+
+  const pill = document.createElement("span");
+  pill.className = `status-pill ${tracking.pillClass}`;
+  pill.textContent = tracking.label;
+  td.appendChild(pill);
   return td;
 }
 
@@ -206,31 +402,29 @@ function renderTable(rows) {
 
   rows.forEach((row) => {
     const tr = document.createElement("tr");
-    const isIvs = row.Estatus === STATUS_IVS;
-    const isResolved = resolvedRows.has(row.__rowId);
+    const tracking = getTrackingState(row);
 
-    if (isIvs) {
-      tr.classList.add("row--alert");
+    if (tracking.rowClass) {
+      tr.classList.add(tracking.rowClass);
     }
+
     if (row.Estatus === "Sin Inventario") {
       tr.classList.add("row--danger");
     }
-    if (isIvs && !isResolved) {
+
+    if (tracking.clickable) {
       tr.classList.add("row--clickable");
       tr.addEventListener("click", () => openModal(row));
     }
-    if (isResolved) {
-      tr.classList.add("row--resolved");
-    }
 
     tr.appendChild(createCell(row.Descripcion || ""));
-    tr.appendChild(createStatusCell(row));
+    tr.appendChild(createStatusCell(row, tracking));
     tr.appendChild(createCell(String(row.OH), "num"));
     tr.appendChild(createCell(Number.isFinite(row.DDI) ? row.DDI.toFixed(0) : "", "num"));
     tableBody.appendChild(tr);
   });
 
-  resultsMeta.textContent = `${rows.length} resultado(s). Las filas con Inventario Sin Venta se pueden registrar.`;
+  resultsMeta.textContent = `${rows.length} resultado(s). Las filas IVS resueltas con fotos duran ${PHOTO_RESOLVED_DAYS} días y los ajustes ${ADJUSTMENT_GRACE_DAYS} días.`;
 }
 
 function applyFilters() {
@@ -238,12 +432,14 @@ function applyFilters() {
   updateFilterOptions(firstPass);
   const finalFilters = getActiveFilters();
   const hasPrimaryFilter = finalFilters.Cadena || finalFilters.NumTienda || finalFilters.NomTienda;
+
   if (!hasPrimaryFilter) {
     tableBody.innerHTML = '<tr><td colspan="4">Selecciona cadena, núm. tienda o nom. tienda para ver resultados.</td></tr>';
     resultsMeta.textContent = "Selecciona una cadena, número o nombre de tienda.";
     currentRows = [];
     return;
   }
+
   renderTable(sortRows(filterRows(finalFilters)));
 }
 
@@ -267,6 +463,7 @@ function attachFilterHandlers() {
     const eventName = key === "NomTienda" ? "input" : "change";
     input.addEventListener(eventName, applyFilters);
   });
+
   resetFilters.addEventListener("click", () => {
     Object.values(FILTERS).forEach((input) => {
       input.value = "";
@@ -303,7 +500,9 @@ function renderModalSummary(row) {
     ["Estatus", row.Estatus],
     ["OH", row.OH],
     ["DDI", Number.isFinite(row.DDI) ? row.DDI.toFixed(0) : ""],
-  ].forEach(([label, value]) => summaryContainer.appendChild(buildSummaryItem(label, String(value || ""))));
+  ].forEach(([label, value]) => {
+    summaryContainer.appendChild(buildSummaryItem(label, String(value || "")));
+  });
 }
 
 function setFormMessage(message, type = "") {
@@ -319,6 +518,7 @@ function togglePhotoFields() {
   photoFields.hidden = hidePhotos;
   fotoExhibicion.disabled = hidePhotos;
   fotoSenalizacion.disabled = hidePhotos;
+
   if (hidePhotos) {
     fotoExhibicion.value = "";
     fotoSenalizacion.value = "";
@@ -333,9 +533,11 @@ function resetModalForm() {
 }
 
 function openModal(row) {
-  if (row.Estatus !== STATUS_IVS || resolvedRows.has(row.__rowId)) {
+  const tracking = getTrackingState(row);
+  if (row.Estatus !== STATUS_IVS || !tracking.clickable) {
     return;
   }
+
   selectedRow = row;
   renderModalSummary(row);
   resetModalForm();
@@ -355,11 +557,13 @@ function attachModalHandlers() {
   closeModalButton.addEventListener("click", closeModal);
   cancelModalButton.addEventListener("click", closeModal);
   backdrop.addEventListener("click", closeModal);
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !modal.hidden) {
       closeModal();
     }
   });
+
   ivsForm.addEventListener("submit", handleSubmit);
 }
 
@@ -436,7 +640,7 @@ function validateImageSize(file, maxMb = 12) {
     throw new Error(`La imagen ${file.name} supera ${maxMb} MB.`);
   }
 }
-  
+
 async function buildPayload(row) {
   const ajuste = ajusteInventario.checked;
   const exhibicionFile = fotoExhibicion.files[0];
@@ -488,7 +692,6 @@ async function buildPayload(row) {
   return payload;
 }
 
-
 async function sendRecord(payload) {
   if (!SCRIPT_URL || SCRIPT_URL.includes("PEGAR_AQUI")) {
     throw new Error("Falta configurar la URL del Web App de Apps Script en app.js.");
@@ -522,9 +725,24 @@ async function sendRecord(payload) {
   return result;
 }
 
+function updateLatestCaseAfterSubmit(row, payload) {
+  latestIvsByCase.set(buildCaseKey(row), {
+    FechaRegistro: new Date(),
+    Cadena: row.Cadena || "",
+    NumTienda: row.NumTienda || "",
+    NomTienda: row.NomTienda || "",
+    Familia: row.Familia || "",
+    Marca: row.Marca || "",
+    Descripcion: row.Descripcion || "",
+    AjusteInventario: payload.rowData.AjusteInventario,
+    FotoExhibicionURL: payload.rowData.AjusteInventario === "SI" ? "" : "local-upload",
+    FotoSenalizacionURL: payload.rowData.AjusteInventario === "SI" ? "" : "local-upload",
+  });
+}
 
 async function handleSubmit(event) {
   event.preventDefault();
+
   if (!selectedRow) {
     setFormMessage("No hay una fila seleccionada.", "error");
     return;
@@ -536,7 +754,7 @@ async function handleSubmit(event) {
   try {
     const payload = await buildPayload(selectedRow);
     await sendRecord(payload);
-    resolvedRows.add(selectedRow.__rowId);
+    updateLatestCaseAfterSubmit(selectedRow, payload);
     setFormMessage("Registro guardado correctamente.", "success");
     applyFilters();
     setTimeout(closeModal, 700);
@@ -547,15 +765,13 @@ async function handleSubmit(event) {
 }
 
 async function init() {
-  const response = await fetch(buildSheetUrl());
-  if (!response.ok) {
-    throw new Error("No se pudo cargar la hoja de Google Sheets");
-  }
+  const [inventoryRows, dataIvsRows] = await Promise.all([
+    fetchSheetRows(SHEET_NAME),
+    fetchSheetRows(DATA_IVS_SHEET_NAME).catch(() => []),
+  ]);
 
-  const text = await response.text();
-  const data = parseGviz(text);
-  const headers = data.table.cols.map((col) => col.label);
-  rawData = data.table.rows.map((row) => toObject(row, headers));
+  rawData = inventoryRows;
+  latestIvsByCase = buildIvsIndex(dataIvsRows);
 
   fillSelect(FILTERS.Cadena, uniqSortedByKey(rawData.map((row) => row.Cadena), "Cadena"));
   fillSelect(FILTERS.NumTienda, uniqSortedByKey(rawData.map((row) => row.NumTienda), "NumTienda"));
