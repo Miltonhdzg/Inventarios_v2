@@ -384,18 +384,59 @@ function buildFileBaseName(row) {
     .join("_");
 }
 
-function fileToBase64(file) {
+function fileToImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = () => {
-      const result = String(reader.result);
-      resolve(result.split(",")[1]);
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("No se pudo procesar una de las imágenes."));
+      img.src = reader.result;
     };
+
     reader.onerror = () => reject(new Error("No se pudo leer una de las imágenes."));
     reader.readAsDataURL(file);
   });
 }
 
+function canvasToBase64(canvas, quality = 0.78) {
+  const dataUrl = canvas.toDataURL("image/jpeg", quality);
+  return dataUrl.split(",")[1];
+}
+
+async function compressImage(file, maxWidth = 1600, quality = 0.78) {
+  const img = await fileToImage(file);
+
+  let width = img.width;
+  let height = img.height;
+
+  if (width > maxWidth) {
+    const ratio = maxWidth / width;
+    width = Math.round(width * ratio);
+    height = Math.round(height * ratio);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, width, height);
+
+  return {
+    mimeType: "image/jpeg",
+    base64: canvasToBase64(canvas, quality),
+  };
+}
+
+function validateImageSize(file, maxMb = 12) {
+  const sizeMb = file.size / (1024 * 1024);
+  if (sizeMb > maxMb) {
+    throw new Error(`La imagen ${file.name} supera ${maxMb} MB.`);
+  }
+}
+  
 async function buildPayload(row) {
   const ajuste = ajusteInventario.checked;
   const exhibicionFile = fotoExhibicion.files[0];
@@ -423,23 +464,30 @@ async function buildPayload(row) {
   };
 
   if (!ajuste) {
+    validateImageSize(exhibicionFile);
+    validateImageSize(senalizacionFile);
+
     const baseName = buildFileBaseName(row);
+    const exhibicionCompressed = await compressImage(exhibicionFile);
+    const senalizacionCompressed = await compressImage(senalizacionFile);
+
     payload.files = {
       exhibicion: {
         fileName: `${baseName}_exhibicion.jpg`,
-        mimeType: exhibicionFile.type || "image/jpeg",
-        base64: await fileToBase64(exhibicionFile),
+        mimeType: "image/jpeg",
+        base64: exhibicionCompressed.base64,
       },
       senalizacion: {
         fileName: `${baseName}_senalizacion.jpg`,
-        mimeType: senalizacionFile.type || "image/jpeg",
-        base64: await fileToBase64(senalizacionFile),
+        mimeType: "image/jpeg",
+        base64: senalizacionCompressed.base64,
       },
     };
   }
 
   return payload;
 }
+
 
 async function sendRecord(payload) {
   if (!SCRIPT_URL || SCRIPT_URL.includes("PEGAR_AQUI")) {
@@ -454,16 +502,26 @@ async function sendRecord(payload) {
     body: JSON.stringify(payload),
   });
 
+  const rawText = await response.text();
+
   if (!response.ok) {
-    throw new Error("No se pudo enviar el registro al backend.");
+    throw new Error(`HTTP ${response.status}: ${rawText}`);
   }
 
-  const result = await response.json();
+  let result;
+  try {
+    result = JSON.parse(rawText);
+  } catch {
+    throw new Error(`Respuesta no JSON del backend: ${rawText}`);
+  }
+
   if (!result.ok) {
     throw new Error(result.error || "El backend devolvió un error.");
   }
+
   return result;
 }
+
 
 async function handleSubmit(event) {
   event.preventDefault();
