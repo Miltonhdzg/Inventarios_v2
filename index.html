@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Info Stock</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__inner">
+        <h1>Consulta de stock</h1>
+        <p class="hero__lead">
+          Filtra por cadena, tienda, familia, marca y estatus. Ordena la tabla y registra evidencias para inventario sin venta.
+        </p>
+      </div>
+    </header>
+
+    <main class="app">
+      <section class="filters">
+        <div class="filters__header">
+          <h2>Filtros</h2>
+          <button id="resetFilters" class="btn btn--ghost" type="button">Limpiar</button>
+        </div>
+        <div class="filters__grid">
+          <label>
+            <span>Cadena</span>
+            <select id="filterCadena"></select>
+          </label>
+          <label>
+            <span>Núm. Tienda</span>
+            <select id="filterNumTienda"></select>
+          </label>
+          <label class="filters__wide">
+            <span>Nombre Tienda</span>
+            <input id="filterNomTienda" class="filters__combo" list="listNomTienda" placeholder="Buscar tienda..." />
+            <datalist id="listNomTienda"></datalist>
+          </label>
+          <label>
+            <span>Familia</span>
+            <select id="filterFamilia"></select>
+          </label>
+          <label>
+            <span>Marca</span>
+            <select id="filterMarca"></select>
+          </label>
+          <label>
+            <span>Estatus</span>
+            <select id="filterEstatus"></select>
+          </label>
+        </div>
+      </section>
+
+      <section class="table-wrap">
+        <div class="table-wrap__header">
+          <div>
+            <h2>Resultados</h2>
+            <p id="resultsMeta" class="table-wrap__meta">Selecciona una fila en estatus Inventario Sin Venta para registrar evidencia.</p>
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th data-key="Descripcion">Descripcion</th>
+                <th data-key="Estatus">Estatus</th>
+                <th data-key="OH" class="num">OH</th>
+                <th data-key="DDI" class="num">DDI</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="ivsModal" class="modal" hidden>
+      <div id="ivsBackdrop" class="modal__backdrop"></div>
+      <section class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal__header">
+          <div>
+            <p class="modal__eyebrow">Registro</p>
+            <h2 id="modalTitle">Registro IVS</h2>
+          </div>
+          <button id="closeModal" class="btn btn--ghost" type="button">Cerrar</button>
+        </div>
+
+        <div id="modalRowSummary" class="modal__summary"></div>
+
+        <form id="ivsForm" class="modal__form">
+          <label class="checkbox">
+            <input id="ajusteInventario" type="checkbox" />
+            <span>Ajuste de Inventario</span>
+          </label>
+
+          <div id="photoFields" class="modal__photos">
+            <label>
+              <span>Foto evidencia exhibicion</span>
+              <input id="fotoExhibicion" type="file" accept="image/*" capture="environment" />
+            </label>
+            <label>
+              <span>Foto señalizacion</span>
+              <input id="fotoSenalizacion" type="file" accept="image/*" capture="environment" />
+            </label>
+          </div>
+
+          <label>
+            <span>Observaciones</span>
+            <textarea id="observaciones" rows="3" placeholder="Opcional"></textarea>
+          </label>
+
+          <p id="formMessage" class="form-message" aria-live="polite"></p>
+
+          <div class="modal__actions">
+            <button id="cancelModal" class="btn btn--ghost" type="button">Cancelar</button>
+            <button id="submitModal" class="btn btn--primary" type="submit">Enviar</button>
+          </div>
+        </form>
+      </section>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
