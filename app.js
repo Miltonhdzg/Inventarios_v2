@@ -46,6 +46,7 @@ const submitOverlayFill = document.getElementById("submitOverlayFill");
 const submitOverlayHint = document.getElementById("submitOverlayHint");
 
 let nomTiendaValues = [];
+let nomTiendaValueSet = new Set();
 let rawData = [];
 let currentRows = [];
 let sortKey = "Descripcion";
@@ -53,6 +54,7 @@ let sortDir = "asc";
 let selectedRow = null;
 let latestIvsByCase = new Map();
 let isSubmitting = false;
+let nomTiendaInputTimer = null;
 
 function buildSheetUrl(sheetName) {
   const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
@@ -208,7 +210,7 @@ function getActiveFilters() {
     Object.entries(FILTERS).map(([key, input]) => {
       const rawValue = input.value.trim();
       if (key === "NomTienda") {
-        return [key, nomTiendaValues.includes(rawValue) ? rawValue : ""];
+        return [key, nomTiendaValueSet.has(rawValue) ? rawValue : ""];
       }
       return [key, rawValue];
     })
@@ -216,24 +218,44 @@ function getActiveFilters() {
 }
 
 function filterRows(filters) {
+  const { Cadena = "", NumTienda = "", NomTienda = "", Familia = "", Marca = "", Estatus = "" } = filters;
+
   return rawData.filter((row) => {
-    return Object.entries(filters).every(([key, value]) => {
-      if (!value) return true;
-      return String(row[key]) === value;
-    });
+    if (Cadena && String(row.Cadena) !== Cadena) return false;
+    if (NumTienda && String(row.NumTienda) !== NumTienda) return false;
+    if (NomTienda && String(row.NomTienda) !== NomTienda) return false;
+    if (Familia && String(row.Familia) !== Familia) return false;
+    if (Marca && String(row.Marca) !== Marca) return false;
+    if (Estatus && String(row.Estatus) !== Estatus) return false;
+    return true;
   });
 }
 
-function updateFilterOptions(currentFilters) {
+function updateNomTiendaValues(values) {
+  nomTiendaValues = values;
+  nomTiendaValueSet = new Set(values);
+  fillDatalist(nomTiendaList, values);
+}
+
+function updateFilterOptions(currentFilters, options = {}) {
+  const { updateSelects = true, updateNomTienda = true } = options;
+
   Object.entries(FILTERS).forEach(([key, input]) => {
+    if (key === "NomTienda" && !updateNomTienda) {
+      return;
+    }
+
+    if (key !== "NomTienda" && !updateSelects) {
+      return;
+    }
+
     const filtersForKey = { ...currentFilters, [key]: "" };
     const subset = filterRows(filtersForKey);
     const values = uniqSortedByKey(subset.map((row) => row[key]), key);
     const previousValue = input.value;
 
     if (key === "NomTienda") {
-      nomTiendaValues = values;
-      fillDatalist(nomTiendaList, values);
+      updateNomTiendaValues(values);
       if (previousValue && values.includes(previousValue)) {
         input.value = previousValue;
       }
@@ -410,6 +432,7 @@ function renderTable(rows) {
     return;
   }
 
+  const fragment = document.createDocumentFragment();
   rows.forEach((row) => {
     const tr = document.createElement("tr");
     const tracking = getTrackingState(row);
@@ -431,15 +454,17 @@ function renderTable(rows) {
     tr.appendChild(createStatusCell(row, tracking));
     tr.appendChild(createCell(String(row.OH), "num"));
     tr.appendChild(createCell(Number.isFinite(row.DDI) ? row.DDI.toFixed(0) : "", "num"));
-    tableBody.appendChild(tr);
+    fragment.appendChild(tr);
   });
+  tableBody.appendChild(fragment);
 
   resultsMeta.textContent = `${rows.length} resultado(s). Las filas IVS resueltas con fotos duran ${PHOTO_RESOLVED_DAYS} días y los ajustes ${ADJUSTMENT_GRACE_DAYS} días.`;
 }
 
-function applyFilters() {
+function applyFilters(options = {}) {
+  const { updateSelects = true, updateNomTienda = true } = options;
   const firstPass = getActiveFilters();
-  updateFilterOptions(firstPass);
+  updateFilterOptions(firstPass, { updateSelects, updateNomTienda });
   const finalFilters = getActiveFilters();
   const hasPrimaryFilter = finalFilters.Cadena || finalFilters.NumTienda || finalFilters.NomTienda;
 
@@ -451,6 +476,35 @@ function applyFilters() {
   }
 
   renderTable(sortRows(filterRows(finalFilters)));
+}
+
+function refreshNomTiendaSuggestions() {
+  const filters = {
+    Cadena: FILTERS.Cadena.value.trim(),
+    NumTienda: FILTERS.NumTienda.value.trim(),
+    NomTienda: "",
+    Familia: FILTERS.Familia.value.trim(),
+    Marca: FILTERS.Marca.value.trim(),
+    Estatus: FILTERS.Estatus.value.trim(),
+  };
+
+  updateFilterOptions(filters, { updateSelects: false, updateNomTienda: true });
+}
+
+function handleNomTiendaInput() {
+  const rawValue = FILTERS.NomTienda.value.trim();
+
+  if (nomTiendaInputTimer) {
+    clearTimeout(nomTiendaInputTimer);
+  }
+
+  nomTiendaInputTimer = setTimeout(() => {
+    refreshNomTiendaSuggestions();
+
+    if (!rawValue || nomTiendaValueSet.has(rawValue)) {
+      applyFilters({ updateSelects: true, updateNomTienda: false });
+    }
+  }, 150);
 }
 
 function attachSortHandlers() {
@@ -470,14 +524,20 @@ function attachSortHandlers() {
 
 function attachFilterHandlers() {
   Object.entries(FILTERS).forEach(([key, input]) => {
-    const eventName = key === "NomTienda" ? "input" : "change";
-    input.addEventListener(eventName, applyFilters);
+    if (key === "NomTienda") {
+      input.addEventListener("input", handleNomTiendaInput);
+      input.addEventListener("change", () => applyFilters());
+      return;
+    }
+
+    input.addEventListener("change", () => applyFilters());
   });
 
   resetFilters.addEventListener("click", () => {
     Object.values(FILTERS).forEach((input) => {
       input.value = "";
     });
+    updateNomTiendaValues(uniqSortedByKey(rawData.map((row) => row.NomTienda), "NomTienda"));
     applyFilters();
   });
 }
@@ -923,8 +983,7 @@ async function init() {
 
   fillSelect(FILTERS.Cadena, uniqSortedByKey(rawData.map((row) => row.Cadena), "Cadena"));
   fillSelect(FILTERS.NumTienda, uniqSortedByKey(rawData.map((row) => row.NumTienda), "NumTienda"));
-  nomTiendaValues = uniqSortedByKey(rawData.map((row) => row.NomTienda), "NomTienda");
-  fillDatalist(nomTiendaList, nomTiendaValues);
+  updateNomTiendaValues(uniqSortedByKey(rawData.map((row) => row.NomTienda), "NomTienda"));
   fillSelect(FILTERS.Familia, uniqSortedByKey(rawData.map((row) => row.Familia), "Familia"));
   fillSelect(FILTERS.Marca, uniqSortedByKey(rawData.map((row) => row.Marca), "Marca"));
   fillSelect(FILTERS.Estatus, uniqSortedByKey(rawData.map((row) => row.Estatus), "Estatus"));
