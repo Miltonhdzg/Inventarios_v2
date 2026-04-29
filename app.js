@@ -353,7 +353,7 @@ function extractDriveFileId(url) {
 function toDirectImageUrl(url) {
   const fileId = extractDriveFileId(url);
   if (fileId) {
-    return `https://drive.google.com/uc?export=view&id=${fileId}`;
+    return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1600`;
   }
 
   return url;
