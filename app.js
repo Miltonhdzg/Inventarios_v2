@@ -35,6 +35,15 @@ const fotoSenalizacion = document.getElementById("fotoSenalizacion");
 const observaciones = document.getElementById("observaciones");
 const formMessage = document.getElementById("formMessage");
 const submitButton = document.getElementById("submitModal");
+const submitProgress = document.getElementById("submitProgress");
+const submitProgressLabel = document.getElementById("submitProgressLabel");
+const submitProgressValue = document.getElementById("submitProgressValue");
+const submitProgressFill = document.getElementById("submitProgressFill");
+const submitProgressHint = document.getElementById("submitProgressHint");
+const submitOverlay = document.getElementById("submitOverlay");
+const submitOverlayLabel = document.getElementById("submitOverlayLabel");
+const submitOverlayFill = document.getElementById("submitOverlayFill");
+const submitOverlayHint = document.getElementById("submitOverlayHint");
 
 let nomTiendaValues = [];
 let rawData = [];
@@ -43,6 +52,7 @@ let sortKey = "Descripcion";
 let sortDir = "asc";
 let selectedRow = null;
 let latestIvsByCase = new Map();
+let isSubmitting = false;
 
 function buildSheetUrl(sheetName) {
   const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
@@ -513,6 +523,48 @@ function setFormMessage(message, type = "") {
   }
 }
 
+function setFormBusyState(busy) {
+  isSubmitting = busy;
+  closeModalButton.disabled = busy;
+  cancelModalButton.disabled = busy;
+  submitButton.disabled = busy;
+  ajusteInventario.disabled = busy;
+  observaciones.disabled = busy;
+
+  if (busy) {
+    fotoExhibicion.disabled = true;
+    fotoSenalizacion.disabled = true;
+    return;
+  }
+
+  togglePhotoFields();
+}
+
+function updateSubmitProgress(value, label, hint = "No cierres esta ventana mientras se procesan las fotos.") {
+  const safeValue = Math.max(0, Math.min(100, Math.round(value)));
+  submitProgress.hidden = false;
+  submitOverlay.hidden = false;
+  submitProgressLabel.textContent = label;
+  submitProgressValue.textContent = `${safeValue}%`;
+  submitProgressFill.style.width = `${safeValue}%`;
+  submitProgressHint.textContent = hint;
+  submitOverlayLabel.textContent = `${label} (${safeValue}%)`;
+  submitOverlayFill.style.width = `${safeValue}%`;
+  submitOverlayHint.textContent = hint;
+}
+
+function resetSubmitProgress() {
+  submitProgress.hidden = true;
+  submitOverlay.hidden = true;
+  submitProgressLabel.textContent = "Preparando registro...";
+  submitProgressValue.textContent = "0%";
+  submitProgressFill.style.width = "0%";
+  submitProgressHint.textContent = "No cierres esta ventana mientras se procesan las fotos.";
+  submitOverlayLabel.textContent = "Preparando registro...";
+  submitOverlayFill.style.width = "0%";
+  submitOverlayHint.textContent = "No cierres esta ventana mientras se procesan las fotos.";
+}
+
 function togglePhotoFields() {
   const hidePhotos = ajusteInventario.checked;
   photoFields.hidden = hidePhotos;
@@ -527,9 +579,9 @@ function togglePhotoFields() {
 
 function resetModalForm() {
   ivsForm.reset();
-  togglePhotoFields();
+  setFormBusyState(false);
   setFormMessage("");
-  submitButton.disabled = false;
+  resetSubmitProgress();
 }
 
 function openModal(row) {
@@ -546,6 +598,10 @@ function openModal(row) {
 }
 
 function closeModal() {
+  if (isSubmitting) {
+    return;
+  }
+
   modal.hidden = true;
   document.body.classList.remove("modal-open");
   selectedRow = null;
@@ -556,10 +612,14 @@ function attachModalHandlers() {
   ajusteInventario.addEventListener("change", togglePhotoFields);
   closeModalButton.addEventListener("click", closeModal);
   cancelModalButton.addEventListener("click", closeModal);
-  backdrop.addEventListener("click", closeModal);
+  backdrop.addEventListener("click", () => {
+    if (!isSubmitting) {
+      closeModal();
+    }
+  });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !modal.hidden) {
+    if (event.key === "Escape" && !modal.hidden && !isSubmitting) {
       closeModal();
     }
   });
@@ -588,50 +648,127 @@ function buildFileBaseName(row) {
     .join("_");
 }
 
-function fileToImage(file) {
+function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("No se pudo procesar una de las imágenes."));
-      img.src = reader.result;
+    reader.onloadend = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("No se pudo convertir una de las imágenes."));
+        return;
+      }
+      resolve(result.split(",")[1] || "");
     };
 
-    reader.onerror = () => reject(new Error("No se pudo leer una de las imágenes."));
-    reader.readAsDataURL(file);
+    reader.onerror = () => reject(new Error("No se pudo leer una de las imágenes comprimidas."));
+    reader.readAsDataURL(blob);
   });
 }
 
-function canvasToBase64(canvas, quality = 0.78) {
-  const dataUrl = canvas.toDataURL("image/jpeg", quality);
-  return dataUrl.split(",")[1];
+function canvasToBlob(canvas, mimeType = "image/jpeg", quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("No se pudo comprimir una de las imágenes."));
+        return;
+      }
+      resolve(blob);
+    }, mimeType, quality);
+  });
 }
 
-async function compressImage(file, maxWidth = 1600, quality = 0.78) {
-  const img = await fileToImage(file);
+function calculateTargetSize(width, height, maxDimension = 1280, maxPixels = 1600000) {
+  let targetWidth = width;
+  let targetHeight = height;
 
-  let width = img.width;
-  let height = img.height;
+  const dimensionScale = Math.min(1, maxDimension / Math.max(width, height));
+  targetWidth = Math.max(1, Math.round(targetWidth * dimensionScale));
+  targetHeight = Math.max(1, Math.round(targetHeight * dimensionScale));
 
-  if (width > maxWidth) {
-    const ratio = maxWidth / width;
-    width = Math.round(width * ratio);
-    height = Math.round(height * ratio);
+  const totalPixels = targetWidth * targetHeight;
+  if (totalPixels > maxPixels) {
+    const pixelScale = Math.sqrt(maxPixels / totalPixels);
+    targetWidth = Math.max(1, Math.round(targetWidth * pixelScale));
+    targetHeight = Math.max(1, Math.round(targetHeight * pixelScale));
   }
 
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  return { width: targetWidth, height: targetHeight };
+}
 
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0, width, height);
+function loadImageElement(file) {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
 
-  return {
-    mimeType: "image/jpeg",
-    base64: canvasToBase64(canvas, quality),
-  };
+    img.onload = () => resolve({ image: img, cleanup: () => URL.revokeObjectURL(objectUrl) });
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(
+        new Error(
+          "No se pudo procesar una de las imágenes. Si fue tomada en iPhone, intenta enviarla en formato compatible o reduce la resolución."
+        )
+      );
+    };
+    img.src = objectUrl;
+  });
+}
+
+async function decodeImageSource(file, targetWidth, targetHeight) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file, {
+        resizeWidth: targetWidth,
+        resizeHeight: targetHeight,
+        resizeQuality: "high",
+      });
+      return { image: bitmap, cleanup: () => bitmap.close() };
+    } catch {
+      // Fallback below for browsers with partial support.
+    }
+  }
+
+  return loadImageElement(file);
+}
+
+async function compressImage(file, options = {}) {
+  const { maxDimension = 1280, maxPixels = 1600000, quality = 0.72 } = options;
+  const probe = await loadImageElement(file);
+
+  try {
+    const targetSize = calculateTargetSize(probe.image.naturalWidth || probe.image.width, probe.image.naturalHeight || probe.image.height, maxDimension, maxPixels);
+    const decoded = await decodeImageSource(file, targetSize.width, targetSize.height);
+    const canvas = document.createElement("canvas");
+    canvas.width = targetSize.width;
+    canvas.height = targetSize.height;
+
+    try {
+      const ctx = canvas.getContext("2d", { alpha: false });
+      if (!ctx) {
+        throw new Error("No se pudo preparar el procesamiento de imágenes.");
+      }
+
+      ctx.drawImage(decoded.image, 0, 0, targetSize.width, targetSize.height);
+
+      const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+      return {
+        mimeType: "image/jpeg",
+        base64: await blobToBase64(blob),
+      };
+    } finally {
+      decoded.cleanup();
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+  } finally {
+    probe.cleanup();
+  }
+}
+
+function waitForNextFrame() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
 }
 
 function validateImageSize(file, maxMb = 12) {
@@ -641,7 +778,7 @@ function validateImageSize(file, maxMb = 12) {
   }
 }
 
-async function buildPayload(row) {
+async function buildPayload(row, onProgress = () => {}) {
   const ajuste = ajusteInventario.checked;
   const exhibicionFile = fotoExhibicion.files[0];
   const senalizacionFile = fotoSenalizacion.files[0];
@@ -668,12 +805,17 @@ async function buildPayload(row) {
   };
 
   if (!ajuste) {
+    onProgress(18, "Validando fotos...");
     validateImageSize(exhibicionFile);
     validateImageSize(senalizacionFile);
 
     const baseName = buildFileBaseName(row);
+    onProgress(35, "Comprimiendo foto de exhibición...");
     const exhibicionCompressed = await compressImage(exhibicionFile);
+    await waitForNextFrame();
+    onProgress(60, "Comprimiendo foto de señalización...");
     const senalizacionCompressed = await compressImage(senalizacionFile);
+    onProgress(78, "Preparando archivos para envío...");
 
     payload.files = {
       exhibicion: {
@@ -692,11 +834,12 @@ async function buildPayload(row) {
   return payload;
 }
 
-async function sendRecord(payload) {
+async function sendRecord(payload, onProgress = () => {}) {
   if (!SCRIPT_URL || SCRIPT_URL.includes("PEGAR_AQUI")) {
     throw new Error("Falta configurar la URL del Web App de Apps Script en app.js.");
   }
 
+  onProgress(85, "Enviando registro...", "Las fotos ya fueron procesadas. Espera unos segundos mientras se completa el envío.");
   const response = await fetch(SCRIPT_URL, {
     method: "POST",
     headers: {
@@ -706,6 +849,7 @@ async function sendRecord(payload) {
   });
 
   const rawText = await response.text();
+  onProgress(95, "Confirmando registro...");
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${rawText}`);
@@ -748,19 +892,23 @@ async function handleSubmit(event) {
     return;
   }
 
-  submitButton.disabled = true;
-  setFormMessage("Enviando registro...", "");
+  setFormBusyState(true);
+  setFormMessage("Procesando evidencia...", "");
+  updateSubmitProgress(8, "Preparando registro...");
 
   try {
-    const payload = await buildPayload(selectedRow);
-    await sendRecord(payload);
+    const payload = await buildPayload(selectedRow, updateSubmitProgress);
+    await sendRecord(payload, updateSubmitProgress);
+    updateSubmitProgress(100, "Registro guardado correctamente.", "Puedes continuar con otro registro.");
     updateLatestCaseAfterSubmit(selectedRow, payload);
     setFormMessage("Registro guardado correctamente.", "success");
     applyFilters();
+    setFormBusyState(false);
     setTimeout(closeModal, 700);
   } catch (error) {
     setFormMessage(error.message, "error");
-    submitButton.disabled = false;
+    setFormBusyState(false);
+    resetSubmitProgress();
   }
 }
 

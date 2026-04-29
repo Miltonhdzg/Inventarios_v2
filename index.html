@@ -111,11 +111,33 @@
 
           <p id="formMessage" class="form-message" aria-live="polite"></p>
 
+          <div id="submitProgress" class="submit-progress" hidden aria-live="polite">
+            <div class="submit-progress__header">
+              <strong id="submitProgressLabel">Preparando registro...</strong>
+              <span id="submitProgressValue">0%</span>
+            </div>
+            <div class="submit-progress__track" aria-hidden="true">
+              <div id="submitProgressFill" class="submit-progress__fill"></div>
+            </div>
+            <p id="submitProgressHint" class="submit-progress__hint">No cierres esta ventana mientras se procesan las fotos.</p>
+          </div>
+
           <div class="modal__actions">
             <button id="cancelModal" class="btn btn--ghost" type="button">Cancelar</button>
             <button id="submitModal" class="btn btn--primary" type="submit">Enviar</button>
           </div>
         </form>
+
+        <div id="submitOverlay" class="submit-overlay" hidden>
+          <div class="submit-overlay__card">
+            <p class="submit-overlay__title">Procesando evidencia</p>
+            <p id="submitOverlayLabel" class="submit-overlay__label">Preparando registro...</p>
+            <div class="submit-progress__track submit-progress__track--overlay" aria-hidden="true">
+              <div id="submitOverlayFill" class="submit-progress__fill"></div>
+            </div>
+            <p id="submitOverlayHint" class="submit-overlay__hint">No cierres esta ventana mientras se procesan las fotos.</p>
+          </div>
+        </div>
       </section>
     </div>
 
