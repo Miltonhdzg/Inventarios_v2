@@ -141,6 +141,44 @@
       </section>
     </div>
 
+    <div id="evidenceModal" class="modal" hidden>
+      <div id="evidenceBackdrop" class="modal__backdrop"></div>
+      <section class="modal__panel modal__panel--detail" role="dialog" aria-modal="true" aria-labelledby="evidenceModalTitle">
+        <div class="modal__header">
+          <div>
+            <p class="modal__eyebrow">Evidencia</p>
+            <h2 id="evidenceModalTitle">Detalle de evidencia</h2>
+            <p id="evidenceModalMeta" class="modal__detail-meta"></p>
+          </div>
+          <button id="closeEvidenceModal" class="btn btn--ghost" type="button">Cerrar</button>
+        </div>
+
+        <div id="evidenceSummary" class="modal__summary"></div>
+
+        <section class="evidence-gallery">
+          <article class="evidence-card">
+            <div class="evidence-card__header">
+              <h3>Foto exhibición</h3>
+            </div>
+            <div class="evidence-card__media">
+              <img id="evidenceExhibicionImg" class="evidence-card__img" alt="Foto de exhibición" hidden />
+              <div id="evidenceExhibicionFallback" class="evidence-card__fallback">Foto no disponible</div>
+            </div>
+          </article>
+
+          <article class="evidence-card">
+            <div class="evidence-card__header">
+              <h3>Foto señalización</h3>
+            </div>
+            <div class="evidence-card__media">
+              <img id="evidenceSenalizacionImg" class="evidence-card__img" alt="Foto de señalización" hidden />
+              <div id="evidenceSenalizacionFallback" class="evidence-card__fallback">Foto no disponible</div>
+            </div>
+          </article>
+        </section>
+      </section>
+    </div>
+
     <script src="app.js"></script>
   </body>
 </html>

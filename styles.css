@@ -280,6 +280,10 @@ tbody tr:hover {
   box-shadow: 0 24px 60px rgba(16, 10, 3, 0.25);
 }
 
+.modal__panel--detail {
+  width: min(860px, 100%);
+}
+
 .modal__eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.18em;
@@ -312,6 +316,12 @@ tbody tr:hover {
   color: var(--ink);
   font-size: 14px;
   word-break: break-word;
+}
+
+.modal__detail-meta {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .modal__form {
@@ -450,13 +460,60 @@ tbody tr:hover {
   color: var(--muted);
 }
 
+.evidence-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.evidence-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 244, 229, 0.7);
+  border: 1px solid rgba(234, 93, 42, 0.12);
+}
+
+.evidence-card__header h3 {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.evidence-card__media {
+  min-height: 240px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  background: rgba(255, 250, 241, 0.95);
+  border: 1px solid rgba(229, 218, 202, 0.8);
+}
+
+.evidence-card__img {
+  width: 100%;
+  height: 100%;
+  max-height: 420px;
+  object-fit: cover;
+  display: block;
+}
+
+.evidence-card__fallback {
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 @media (max-width: 840px) {
   .filters__wide {
     grid-column: span 1;
   }
 
   .modal__summary,
-  .modal__photos {
+  .modal__photos,
+  .evidence-gallery {
     grid-template-columns: 1fr;
   }
 }

@@ -44,6 +44,15 @@ const submitOverlay = document.getElementById("submitOverlay");
 const submitOverlayLabel = document.getElementById("submitOverlayLabel");
 const submitOverlayFill = document.getElementById("submitOverlayFill");
 const submitOverlayHint = document.getElementById("submitOverlayHint");
+const evidenceModal = document.getElementById("evidenceModal");
+const evidenceBackdrop = document.getElementById("evidenceBackdrop");
+const closeEvidenceModalButton = document.getElementById("closeEvidenceModal");
+const evidenceModalMeta = document.getElementById("evidenceModalMeta");
+const evidenceSummary = document.getElementById("evidenceSummary");
+const evidenceExhibicionImg = document.getElementById("evidenceExhibicionImg");
+const evidenceSenalizacionImg = document.getElementById("evidenceSenalizacionImg");
+const evidenceExhibicionFallback = document.getElementById("evidenceExhibicionFallback");
+const evidenceSenalizacionFallback = document.getElementById("evidenceSenalizacionFallback");
 
 let nomTiendaValues = [];
 let nomTiendaValueSet = new Set();
@@ -55,6 +64,7 @@ let selectedRow = null;
 let latestIvsByCase = new Map();
 let isSubmitting = false;
 let nomTiendaInputTimer = null;
+let reportReferenceDate = new Date();
 
 function buildSheetUrl(sheetName) {
   const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
@@ -296,6 +306,59 @@ function daysBetween(fromDate, toDate = new Date()) {
   return Math.floor(diff / msPerDay);
 }
 
+function formatDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "No disponible";
+  }
+
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function inferReportReferenceDate(rows) {
+  const candidateFields = ["FechaReporte", "Fecha", "FechaCorte", "FechaGeneracion", "ReporteFecha"];
+
+  for (const field of candidateFields) {
+    const candidate = rows.find((row) => row[field]);
+    const parsed = normalizeDateValue(candidate?.[field]);
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  return new Date();
+}
+
+function extractDriveFileId(url) {
+  if (!url) {
+    return "";
+  }
+
+  const filePathMatch = String(url).match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (filePathMatch) {
+    return filePathMatch[1];
+  }
+
+  try {
+    const parsed = new URL(url);
+    return parsed.searchParams.get("id") || "";
+  } catch {
+    return "";
+  }
+}
+
+function toDirectImageUrl(url) {
+  const fileId = extractDriveFileId(url);
+  if (fileId) {
+    return `https://drive.google.com/uc?export=view&id=${fileId}`;
+  }
+
+  return url;
+}
+
 function hasEvidence(record) {
   return Boolean(record.FotoExhibicionURL && record.FotoSenalizacionURL);
 }
@@ -330,6 +393,7 @@ function getTrackingState(row) {
       rowClass: "",
       pillClass: "",
       message: "",
+      action: "none",
     };
   }
 
@@ -343,6 +407,7 @@ function getTrackingState(row) {
       rowClass: "row--alert",
       pillClass: "",
       message: "",
+      action: "register",
     };
   }
 
@@ -357,6 +422,7 @@ function getTrackingState(row) {
         rowClass: "row--temp",
         pillClass: "status-pill--temp",
         message: "Ajuste vigente",
+        action: "none",
       };
     }
 
@@ -367,6 +433,7 @@ function getTrackingState(row) {
       rowClass: "row--reopen",
       pillClass: "status-pill--reopen",
       message: "Se necesita volver a hacer el ajuste",
+      action: "register",
     };
   }
 
@@ -375,10 +442,11 @@ function getTrackingState(row) {
       return {
         type: "resolved-evidence",
         label: "Resuelto con evidencia",
-        clickable: false,
+        clickable: true,
         rowClass: "row--resolved",
         pillClass: "status-pill--resolved",
         message: "Resuelto con evidencia",
+        action: "view-evidence",
       };
     }
   }
@@ -390,6 +458,7 @@ function getTrackingState(row) {
     rowClass: "row--alert",
     pillClass: "",
     message: "",
+    action: "register",
   };
 }
 
@@ -447,7 +516,13 @@ function renderTable(rows) {
 
     if (tracking.clickable) {
       tr.classList.add("row--clickable");
-      tr.addEventListener("click", () => openModal(row));
+      tr.addEventListener("click", () => {
+        if (tracking.action === "view-evidence") {
+          openEvidenceModal(row);
+          return;
+        }
+        openModal(row);
+      });
     }
 
     tr.appendChild(createCell(row.Descripcion || ""));
@@ -644,6 +719,60 @@ function resetModalForm() {
   resetSubmitProgress();
 }
 
+function setEvidenceImage(imgElement, fallbackElement, url) {
+  imgElement.hidden = true;
+  imgElement.removeAttribute("src");
+  imgElement.onerror = null;
+  imgElement.onload = null;
+
+  if (!url) {
+    fallbackElement.hidden = false;
+    return;
+  }
+
+  fallbackElement.hidden = true;
+  imgElement.onerror = () => {
+    imgElement.hidden = true;
+    fallbackElement.hidden = false;
+  };
+  imgElement.onload = () => {
+    fallbackElement.hidden = true;
+    imgElement.hidden = false;
+  };
+  imgElement.src = toDirectImageUrl(url);
+}
+
+function renderEvidenceSummary(row, record) {
+  evidenceSummary.innerHTML = "";
+
+  [
+    ["Cadena", row.Cadena],
+    ["Tienda", `${row.NumTienda || ""} - ${row.NomTienda || ""}`.trim().replace(/^-\s*/, "")],
+    ["Marca", row.Marca],
+    ["Descripción", row.Descripcion],
+    ["Estatus", "Resuelto con evidencia"],
+    ["Fecha de resolución", formatDate(record.FechaRegistro)],
+    ["Fecha del reporte", formatDate(reportReferenceDate)],
+    ["Días al reporte", `${daysBetween(record.FechaRegistro, reportReferenceDate)} día(s)`],
+  ].forEach(([label, value]) => {
+    evidenceSummary.appendChild(buildSummaryItem(label, String(value || "No disponible")));
+  });
+}
+
+function openEvidenceModal(row) {
+  const latestRecord = latestIvsByCase.get(row.__caseKey);
+  if (!latestRecord) {
+    return;
+  }
+
+  renderEvidenceSummary(row, latestRecord);
+  evidenceModalMeta.textContent = `Resuelto el ${formatDate(latestRecord.FechaRegistro)} • ${daysBetween(latestRecord.FechaRegistro, reportReferenceDate)} día(s) transcurridos al último reporte`;
+  setEvidenceImage(evidenceExhibicionImg, evidenceExhibicionFallback, latestRecord.FotoExhibicionURL);
+  setEvidenceImage(evidenceSenalizacionImg, evidenceSenalizacionFallback, latestRecord.FotoSenalizacionURL);
+  evidenceModal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
 function openModal(row) {
   const tracking = getTrackingState(row);
   if (row.Estatus !== STATUS_IVS || !tracking.clickable) {
@@ -663,9 +792,24 @@ function closeModal() {
   }
 
   modal.hidden = true;
-  document.body.classList.remove("modal-open");
   selectedRow = null;
   resetModalForm();
+
+  if (evidenceModal.hidden) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function closeEvidenceModal() {
+  evidenceModal.hidden = true;
+  evidenceSummary.innerHTML = "";
+  evidenceModalMeta.textContent = "";
+  setEvidenceImage(evidenceExhibicionImg, evidenceExhibicionFallback, "");
+  setEvidenceImage(evidenceSenalizacionImg, evidenceSenalizacionFallback, "");
+
+  if (modal.hidden) {
+    document.body.classList.remove("modal-open");
+  }
 }
 
 function attachModalHandlers() {
@@ -677,10 +821,17 @@ function attachModalHandlers() {
       closeModal();
     }
   });
+  closeEvidenceModalButton.addEventListener("click", closeEvidenceModal);
+  evidenceBackdrop.addEventListener("click", closeEvidenceModal);
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !modal.hidden && !isSubmitting) {
       closeModal();
+      return;
+    }
+
+    if (event.key === "Escape" && !evidenceModal.hidden) {
+      closeEvidenceModal();
     }
   });
 
@@ -979,6 +1130,7 @@ async function init() {
   ]);
 
   rawData = inventoryRows;
+  reportReferenceDate = inferReportReferenceDate(inventoryRows);
   latestIvsByCase = buildIvsIndex(dataIvsRows);
 
   fillSelect(FILTERS.Cadena, uniqSortedByKey(rawData.map((row) => row.Cadena), "Cadena"));
