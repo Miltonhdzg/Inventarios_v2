@@ -889,6 +889,35 @@ function canvasToBlob(canvas, mimeType = "image/jpeg", quality = 0.72) {
   });
 }
 
+function getPhotoProcessingOptions() {
+  const deviceMemory = Number(navigator.deviceMemory || 0);
+
+  if (deviceMemory > 0 && deviceMemory <= 2) {
+    return {
+      maxDimension: 960,
+      maxPixels: 1100000,
+      quality: 0.68,
+      maxDecodedPixels: 12000000,
+    };
+  }
+
+  if (deviceMemory > 0 && deviceMemory <= 4) {
+    return {
+      maxDimension: 1100,
+      maxPixels: 1400000,
+      quality: 0.7,
+      maxDecodedPixels: 18000000,
+    };
+  }
+
+  return {
+    maxDimension: 1280,
+    maxPixels: 1600000,
+    quality: 0.72,
+    maxDecodedPixels: 24000000,
+  };
+}
+
 function calculateTargetSize(width, height, maxDimension = 1280, maxPixels = 1600000) {
   let targetWidth = width;
   let targetHeight = height;
@@ -928,11 +957,15 @@ function loadImageElement(file) {
 async function decodeImageSource(file, targetWidth, targetHeight) {
   if (typeof createImageBitmap === "function") {
     try {
-      const bitmap = await createImageBitmap(file, {
-        resizeWidth: targetWidth,
-        resizeHeight: targetHeight,
-        resizeQuality: "high",
-      });
+      const resizeOptions =
+        targetWidth && targetHeight
+          ? {
+              resizeWidth: targetWidth,
+              resizeHeight: targetHeight,
+              resizeQuality: "high",
+            }
+          : undefined;
+      const bitmap = resizeOptions ? await createImageBitmap(file, resizeOptions) : await createImageBitmap(file);
       return { image: bitmap, cleanup: () => bitmap.close() };
     } catch {
       // Fallback below for browsers with partial support.
@@ -942,13 +975,37 @@ async function decodeImageSource(file, targetWidth, targetHeight) {
   return loadImageElement(file);
 }
 
+function getImageDimensions(image) {
+  return {
+    width: image.naturalWidth || image.displayWidth || image.videoWidth || image.width || 0,
+    height: image.naturalHeight || image.displayHeight || image.videoHeight || image.height || 0,
+  };
+}
+
 async function compressImage(file, options = {}) {
-  const { maxDimension = 1280, maxPixels = 1600000, quality = 0.72 } = options;
-  const probe = await loadImageElement(file);
+  const {
+    maxDimension = 1280,
+    maxPixels = 1600000,
+    quality = 0.72,
+    maxDecodedPixels = 24000000,
+  } = options;
+  let decoded = null;
 
   try {
-    const targetSize = calculateTargetSize(probe.image.naturalWidth || probe.image.width, probe.image.naturalHeight || probe.image.height, maxDimension, maxPixels);
-    const decoded = await decodeImageSource(file, targetSize.width, targetSize.height);
+    decoded = await decodeImageSource(file);
+
+    const sourceSize = getImageDimensions(decoded.image);
+    if (!sourceSize.width || !sourceSize.height) {
+      throw new Error("No se pudo leer el tamaño de una de las imágenes.");
+    }
+
+    if (sourceSize.width * sourceSize.height > maxDecodedPixels) {
+      throw new Error(
+        "Una de las imágenes tiene una resolución demasiado alta para este dispositivo. Intenta tomarla con menor resolución."
+      );
+    }
+
+    const targetSize = calculateTargetSize(sourceSize.width, sourceSize.height, maxDimension, maxPixels);
     const canvas = document.createElement("canvas");
     canvas.width = targetSize.width;
     canvas.height = targetSize.height;
@@ -967,12 +1024,13 @@ async function compressImage(file, options = {}) {
         base64: await blobToBase64(blob),
       };
     } finally {
-      decoded.cleanup();
       canvas.width = 1;
       canvas.height = 1;
     }
   } finally {
-    probe.cleanup();
+    if (decoded) {
+      decoded.cleanup();
+    }
   }
 }
 
@@ -989,10 +1047,11 @@ function validateImageSize(file, maxMb = 12) {
   }
 }
 
-async function buildPayload(row, onProgress = () => {}) {
+async function buildRequestBody(row, onProgress = () => {}) {
   const ajuste = ajusteInventario.checked;
-  const exhibicionFile = fotoExhibicion.files[0];
-  const senalizacionFile = fotoSenalizacion.files[0];
+  const processingOptions = getPhotoProcessingOptions();
+  let exhibicionFile = fotoExhibicion.files[0];
+  let senalizacionFile = fotoSenalizacion.files[0];
 
   if (!ajuste && (!exhibicionFile || !senalizacionFile)) {
     throw new Error("Debes capturar foto de exhibicion y foto de señalizacion, o marcar Ajuste de Inventario.");
@@ -1021,31 +1080,36 @@ async function buildPayload(row, onProgress = () => {}) {
     validateImageSize(senalizacionFile);
 
     const baseName = buildFileBaseName(row);
+    payload.files = {};
     onProgress(35, "Comprimiendo foto de exhibición...");
-    const exhibicionCompressed = await compressImage(exhibicionFile);
+    const exhibicionCompressed = await compressImage(exhibicionFile, processingOptions);
+    exhibicionFile = null;
+    fotoExhibicion.value = "";
+    payload.files.exhibicion = {
+      fileName: `${baseName}_exhibicion.jpg`,
+      mimeType: "image/jpeg",
+      base64: exhibicionCompressed.base64,
+    };
     await waitForNextFrame();
     onProgress(60, "Comprimiendo foto de señalización...");
-    const senalizacionCompressed = await compressImage(senalizacionFile);
+    const senalizacionCompressed = await compressImage(senalizacionFile, processingOptions);
+    senalizacionFile = null;
+    fotoSenalizacion.value = "";
     onProgress(78, "Preparando archivos para envío...");
-
-    payload.files = {
-      exhibicion: {
-        fileName: `${baseName}_exhibicion.jpg`,
-        mimeType: "image/jpeg",
-        base64: exhibicionCompressed.base64,
-      },
-      senalizacion: {
-        fileName: `${baseName}_senalizacion.jpg`,
-        mimeType: "image/jpeg",
-        base64: senalizacionCompressed.base64,
-      },
+    payload.files.senalizacion = {
+      fileName: `${baseName}_senalizacion.jpg`,
+      mimeType: "image/jpeg",
+      base64: senalizacionCompressed.base64,
     };
   }
 
-  return payload;
+  return {
+    ajusteInventario: payload.rowData.AjusteInventario,
+    body: JSON.stringify(payload),
+  };
 }
 
-async function sendRecord(payload, onProgress = () => {}) {
+async function sendRecord(body, onProgress = () => {}) {
   if (!SCRIPT_URL || SCRIPT_URL.includes("PEGAR_AQUI")) {
     throw new Error("Falta configurar la URL del Web App de Apps Script en app.js.");
   }
@@ -1056,7 +1120,7 @@ async function sendRecord(payload, onProgress = () => {}) {
     headers: {
       "Content-Type": "text/plain;charset=utf-8",
     },
-    body: JSON.stringify(payload),
+    body,
   });
 
   const rawText = await response.text();
@@ -1080,7 +1144,7 @@ async function sendRecord(payload, onProgress = () => {}) {
   return result;
 }
 
-function updateLatestCaseAfterSubmit(row, payload) {
+function updateLatestCaseAfterSubmit(row, ajusteInventario) {
   latestIvsByCase.set(buildCaseKey(row), {
     FechaRegistro: new Date(),
     Cadena: row.Cadena || "",
@@ -1089,9 +1153,9 @@ function updateLatestCaseAfterSubmit(row, payload) {
     Familia: row.Familia || "",
     Marca: row.Marca || "",
     Descripcion: row.Descripcion || "",
-    AjusteInventario: payload.rowData.AjusteInventario,
-    FotoExhibicionURL: payload.rowData.AjusteInventario === "SI" ? "" : "local-upload",
-    FotoSenalizacionURL: payload.rowData.AjusteInventario === "SI" ? "" : "local-upload",
+    AjusteInventario: ajusteInventario,
+    FotoExhibicionURL: ajusteInventario === "SI" ? "" : "local-upload",
+    FotoSenalizacionURL: ajusteInventario === "SI" ? "" : "local-upload",
   });
 }
 
@@ -1108,10 +1172,10 @@ async function handleSubmit(event) {
   updateSubmitProgress(8, "Preparando registro...");
 
   try {
-    const payload = await buildPayload(selectedRow, updateSubmitProgress);
-    await sendRecord(payload, updateSubmitProgress);
+    const request = await buildRequestBody(selectedRow, updateSubmitProgress);
+    await sendRecord(request.body, updateSubmitProgress);
     updateSubmitProgress(100, "Registro guardado correctamente.", "Puedes continuar con otro registro.");
-    updateLatestCaseAfterSubmit(selectedRow, payload);
+    updateLatestCaseAfterSubmit(selectedRow, request.ajusteInventario);
     setFormMessage("Registro guardado correctamente.", "success");
     applyFilters();
     setFormBusyState(false);
