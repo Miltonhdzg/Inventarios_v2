@@ -17,6 +17,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: radial-gradient(circle at top left, #fff6e6 0%, #f4e4ce 35%, #f0dfc3 70%, #e8d4b2 100%);
@@ -36,6 +40,13 @@ body.modal-open {
   margin: 0 auto;
 }
 
+.hero__topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+}
+
 h1,
 h2,
 p {
@@ -50,6 +61,90 @@ h1 {
 .hero__lead {
   color: var(--muted);
   max-width: 640px;
+}
+
+.user-badge {
+  min-width: 260px;
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: rgba(255, 248, 239, 0.72);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.user-badge__eyebrow,
+.user-badge__phone {
+  margin: 0;
+  color: var(--muted);
+}
+
+.user-badge__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.user-badge__name {
+  display: block;
+  margin: 4px 0 6px;
+  font-size: 16px;
+}
+
+.modal__panel--access {
+  width: min(460px, 100%);
+}
+
+.modal__header--stacked {
+  align-items: flex-start;
+}
+
+.modal__actions--split {
+  justify-content: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.welcome-card {
+  display: grid;
+  gap: 6px;
+  margin: 18px 0 24px;
+  padding: 18px;
+  border-radius: 18px;
+  background: rgba(255, 244, 229, 0.7);
+  border: 1px solid rgba(234, 93, 42, 0.12);
+}
+
+.welcome-card__title,
+.welcome-card__phone {
+  margin: 0;
+}
+
+.welcome-card__title {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.welcome-card__name {
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.welcome-card__name--confirm {
+  font-size: 22px;
+}
+
+.welcome-card__phone {
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+
+.welcome-card__phone--muted {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .app {
@@ -111,6 +206,7 @@ label {
 }
 
 select,
+.modal__form input:not([type="file"]),
 .filters__combo,
 textarea,
 input[type="file"] {
@@ -507,6 +603,15 @@ tbody tr:hover {
 }
 
 @media (max-width: 840px) {
+  .hero__topbar {
+    flex-direction: column;
+  }
+
+  .user-badge {
+    width: 100%;
+    min-width: 0;
+  }
+
   .filters__wide {
     grid-column: span 1;
   }
@@ -554,12 +659,17 @@ tbody tr:hover {
     gap: 12px;
   }
 
+  .welcome-card__name {
+    font-size: 20px;
+  }
+
   label {
     gap: 6px;
     font-size: 12px;
   }
 
   select,
+  .modal__form input:not([type="file"]),
   .filters__combo,
   textarea,
   input[type="file"] {

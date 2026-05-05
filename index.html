@@ -9,10 +9,22 @@
   <body>
     <header class="hero">
       <div class="hero__inner">
-        <h1>Consulta de stock</h1>
-        <p class="hero__lead">
-          Filtra por cadena, tienda, familia, marca y estatus. Ordena la tabla y registra evidencias para inventario sin venta.
-        </p>
+        <div class="hero__topbar">
+          <div>
+            <h1>Consulta de stock</h1>
+            <p class="hero__lead">
+              Filtra por cadena, tienda, familia, marca y estatus. Ordena la tabla y registra evidencias para inventario sin venta.
+            </p>
+          </div>
+          <div id="userBadge" class="user-badge" hidden>
+            <div>
+              <p class="user-badge__eyebrow">Usuario activo</p>
+              <strong id="userBadgeName" class="user-badge__name"></strong>
+              <p id="userBadgePhone" class="user-badge__phone"></p>
+            </div>
+            <button id="switchUserButton" class="btn btn--ghost" type="button">Cambiar usuario</button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -176,6 +188,61 @@
             </div>
           </article>
         </section>
+      </section>
+    </div>
+
+    <div id="accessModal" class="modal" hidden>
+      <div class="modal__backdrop"></div>
+      <section class="modal__panel modal__panel--access" role="dialog" aria-modal="true" aria-labelledby="accessTitle">
+        <div class="modal__header modal__header--stacked">
+          <div>
+            <p class="modal__eyebrow">Acceso</p>
+            <h2 id="accessTitle">Bienvenido</h2>
+            <p id="accessIntro" class="modal__detail-meta">Regístrate para continuar.</p>
+          </div>
+        </div>
+
+        <div id="accessReturningView" hidden>
+          <div class="welcome-card">
+            <p class="welcome-card__title">Bienvenido de nuevo</p>
+            <strong id="returningUserName" class="welcome-card__name"></strong>
+            <p id="returningUserPhone" class="welcome-card__phone"></p>
+          </div>
+          <div class="modal__actions modal__actions--split">
+            <button id="continueSessionButton" class="btn btn--primary" type="button">Continuar</button>
+            <button id="useOtherAccountButton" class="btn btn--ghost" type="button">Usar otra cuenta</button>
+          </div>
+        </div>
+
+        <div id="accessConfirmView" hidden>
+          <div class="welcome-card">
+            <p class="welcome-card__title">Cambiar de cuenta</p>
+            <strong class="welcome-card__name welcome-card__name--confirm">¿Quieres usar otra cuenta?</strong>
+            <p class="welcome-card__phone welcome-card__phone--muted">Si continúas, tendrás que registrar otro nombre y teléfono.</p>
+          </div>
+          <div class="modal__actions modal__actions--split">
+            <button id="cancelSwitchUserButton" class="btn btn--ghost" type="button">Cancelar</button>
+            <button id="confirmSwitchUserButton" class="btn btn--primary" type="button">Sí, cambiar cuenta</button>
+          </div>
+        </div>
+
+        <form id="accessForm" class="modal__form" hidden>
+          <label>
+            <span>Nombre completo</span>
+            <input id="accessFullName" type="text" placeholder="Ej. Juan Pérez López" autocomplete="name" />
+          </label>
+
+          <label>
+            <span>Número de teléfono</span>
+            <input id="accessPhone" type="tel" inputmode="numeric" placeholder="10 dígitos" autocomplete="tel" />
+          </label>
+
+          <p id="accessMessage" class="form-message" aria-live="polite"></p>
+
+          <div class="modal__actions">
+            <button id="accessSubmit" class="btn btn--primary" type="submit">Continuar</button>
+          </div>
+        </form>
       </section>
     </div>
 

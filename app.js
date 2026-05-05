@@ -6,6 +6,7 @@ const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyVVqXYzN61F2WSeYOTq
 const STATUS_IVS = "Inventario Sin Venta";
 const PHOTO_RESOLVED_DAYS = 30;
 const ADJUSTMENT_GRACE_DAYS = 7;
+const USER_STORAGE_KEY = "ivsUser";
 const numericKeys = new Set(["OH", "DDI"]);
 
 const FILTERS = {
@@ -53,6 +54,25 @@ const evidenceExhibicionImg = document.getElementById("evidenceExhibicionImg");
 const evidenceSenalizacionImg = document.getElementById("evidenceSenalizacionImg");
 const evidenceExhibicionFallback = document.getElementById("evidenceExhibicionFallback");
 const evidenceSenalizacionFallback = document.getElementById("evidenceSenalizacionFallback");
+const userBadge = document.getElementById("userBadge");
+const userBadgeName = document.getElementById("userBadgeName");
+const userBadgePhone = document.getElementById("userBadgePhone");
+const switchUserButton = document.getElementById("switchUserButton");
+const accessModal = document.getElementById("accessModal");
+const accessTitle = document.getElementById("accessTitle");
+const accessIntro = document.getElementById("accessIntro");
+const accessReturningView = document.getElementById("accessReturningView");
+const accessConfirmView = document.getElementById("accessConfirmView");
+const accessForm = document.getElementById("accessForm");
+const accessFullName = document.getElementById("accessFullName");
+const accessPhone = document.getElementById("accessPhone");
+const accessMessage = document.getElementById("accessMessage");
+const continueSessionButton = document.getElementById("continueSessionButton");
+const useOtherAccountButton = document.getElementById("useOtherAccountButton");
+const cancelSwitchUserButton = document.getElementById("cancelSwitchUserButton");
+const confirmSwitchUserButton = document.getElementById("confirmSwitchUserButton");
+const returningUserName = document.getElementById("returningUserName");
+const returningUserPhone = document.getElementById("returningUserPhone");
 
 let nomTiendaValues = [];
 let nomTiendaValueSet = new Set();
@@ -65,6 +85,7 @@ let latestIvsByCase = new Map();
 let isSubmitting = false;
 let nomTiendaInputTimer = null;
 let reportReferenceDate = new Date();
+let currentUser = null;
 
 function buildSheetUrl(sheetName) {
   const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
@@ -225,6 +246,164 @@ function getActiveFilters() {
       return [key, rawValue];
     })
   );
+}
+
+function normalizeFullName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizePhone(value) {
+  return String(value || "").replace(/\D/g, "").slice(0, 10);
+}
+
+function formatPhone(phone) {
+  const digits = normalizePhone(phone);
+  if (digits.length !== 10) {
+    return digits;
+  }
+
+  return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+}
+
+function loadSavedUser() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || "null");
+    if (!parsed) {
+      return null;
+    }
+
+    const fullName = normalizeFullName(parsed.fullName);
+    const phone = normalizePhone(parsed.phone);
+    if (!fullName || phone.length !== 10) {
+      return null;
+    }
+
+    return {
+      fullName,
+      phone,
+      registeredAt: parsed.registeredAt || new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveUser(user) {
+  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
+}
+
+function clearSavedUser() {
+  localStorage.removeItem(USER_STORAGE_KEY);
+}
+
+function updateUserBadge() {
+  if (!currentUser) {
+    userBadge.hidden = true;
+    userBadgeName.textContent = "";
+    userBadgePhone.textContent = "";
+    return;
+  }
+
+  userBadge.hidden = false;
+  userBadgeName.textContent = currentUser.fullName;
+  userBadgePhone.textContent = formatPhone(currentUser.phone);
+}
+
+function setCurrentUser(user) {
+  currentUser = user;
+  updateUserBadge();
+}
+
+function setAccessMessage(message, type = "") {
+  accessMessage.textContent = message;
+  accessMessage.className = "form-message";
+  if (type) {
+    accessMessage.classList.add(`is-${type}`);
+  }
+}
+
+function renderReturningAccess(user) {
+  accessTitle.textContent = "Bienvenido";
+  accessIntro.textContent = "Ya encontramos un usuario guardado en este dispositivo.";
+  returningUserName.textContent = user.fullName;
+  returningUserPhone.textContent = formatPhone(user.phone);
+  accessReturningView.hidden = false;
+  accessConfirmView.hidden = true;
+  accessForm.hidden = true;
+  setAccessMessage("");
+}
+
+function renderConfirmSwitchAccess() {
+  accessTitle.textContent = "Bienvenido";
+  accessIntro.textContent = "Puedes cancelar y seguir usando la cuenta actual.";
+  accessReturningView.hidden = true;
+  accessConfirmView.hidden = false;
+  accessForm.hidden = true;
+  setAccessMessage("");
+}
+
+function renderRegistrationAccess() {
+  accessTitle.textContent = "Bienvenido";
+  accessIntro.textContent = "Regístrate para continuar.";
+  accessReturningView.hidden = true;
+  accessConfirmView.hidden = true;
+  accessForm.hidden = false;
+  accessFullName.value = "";
+  accessPhone.value = "";
+  setAccessMessage("");
+}
+
+function openAccessModal(mode = "auto") {
+  const savedUser = loadSavedUser();
+  const showReturning = mode !== "register" && savedUser;
+
+  accessModal.hidden = false;
+  document.body.classList.add("modal-open");
+
+  if (showReturning) {
+    renderReturningAccess(savedUser);
+  } else {
+    renderRegistrationAccess();
+    setTimeout(() => accessFullName.focus(), 0);
+  }
+}
+
+function closeAccessModal() {
+  accessModal.hidden = true;
+
+  if (modal.hidden && evidenceModal.hidden) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function bootstrapUserSession() {
+  const savedUser = loadSavedUser();
+  if (savedUser) {
+    setCurrentUser(savedUser);
+    openAccessModal("returning");
+    return;
+  }
+
+  setCurrentUser(null);
+  openAccessModal("register");
+}
+
+function validateAccessUser(fullName, phone) {
+  const trimmedName = normalizeFullName(fullName);
+  const digits = normalizePhone(phone);
+
+  if (trimmedName.split(" ").filter(Boolean).length < 2) {
+    throw new Error("Captura nombre y apellido para identificar al usuario.");
+  }
+
+  if (digits.length !== 10) {
+    throw new Error("El número de teléfono debe tener 10 dígitos.");
+  }
+
+  return {
+    fullName: trimmedName,
+    phone: digits,
+  };
 }
 
 function filterRows(filters) {
@@ -658,6 +837,23 @@ function setFormMessage(message, type = "") {
   }
 }
 
+function handleAccessSubmit(event) {
+  event.preventDefault();
+
+  try {
+    const user = validateAccessUser(accessFullName.value, accessPhone.value);
+    const payload = {
+      ...user,
+      registeredAt: new Date().toISOString(),
+    };
+    saveUser(payload);
+    setCurrentUser(payload);
+    closeAccessModal();
+  } catch (error) {
+    setAccessMessage(error.message, "error");
+  }
+}
+
 function setFormBusyState(busy) {
   isSubmitting = busy;
   closeModalButton.disabled = busy;
@@ -810,6 +1006,45 @@ function closeEvidenceModal() {
   if (modal.hidden) {
     document.body.classList.remove("modal-open");
   }
+}
+
+function attachAccessHandlers() {
+  accessForm.addEventListener("submit", handleAccessSubmit);
+  continueSessionButton.addEventListener("click", () => {
+    const savedUser = loadSavedUser();
+    if (!savedUser) {
+      renderRegistrationAccess();
+      setCurrentUser(null);
+      return;
+    }
+
+    setCurrentUser(savedUser);
+    closeAccessModal();
+  });
+  useOtherAccountButton.addEventListener("click", () => {
+    renderConfirmSwitchAccess();
+  });
+  cancelSwitchUserButton.addEventListener("click", () => {
+    const savedUser = loadSavedUser();
+    if (!savedUser) {
+      renderRegistrationAccess();
+      return;
+    }
+
+    renderReturningAccess(savedUser);
+  });
+  confirmSwitchUserButton.addEventListener("click", () => {
+    clearSavedUser();
+    setCurrentUser(null);
+    renderRegistrationAccess();
+    setTimeout(() => accessFullName.focus(), 0);
+  });
+  switchUserButton.addEventListener("click", () => {
+    openAccessModal("auto");
+  });
+  accessPhone.addEventListener("input", () => {
+    accessPhone.value = normalizePhone(accessPhone.value);
+  });
 }
 
 function attachModalHandlers() {
@@ -1012,6 +1247,8 @@ async function buildPayload(row, onProgress = () => {}) {
       AjusteInventario: ajuste ? "SI" : "NO",
       Observaciones: observaciones.value.trim(),
       Origen: "WebApp",
+      UsuarioNombreCompleto: currentUser?.fullName || "",
+      UsuarioTelefono: currentUser?.phone || "",
     },
   };
 
@@ -1103,6 +1340,12 @@ async function handleSubmit(event) {
     return;
   }
 
+  if (!currentUser) {
+    setFormMessage("Necesitas identificarte antes de enviar un registro.", "error");
+    openAccessModal("register");
+    return;
+  }
+
   setFormBusyState(true);
   setFormMessage("Procesando evidencia...", "");
   updateSubmitProgress(8, "Preparando registro...");
@@ -1143,8 +1386,10 @@ async function init() {
   attachSortHandlers();
   attachFilterHandlers();
   attachModalHandlers();
+  attachAccessHandlers();
   togglePhotoFields();
   applyFilters();
+  bootstrapUserSession();
 }
 
 init().catch((error) => {
